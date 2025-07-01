@@ -41,5 +41,18 @@ services:
       - web
       - redis
 
+  celery-beat:
+    build: .
+    command: celery -A library_system beat -l info
+    volumes:
+      - .:/code
+    depends_on:
+      - db
+      - redis
+      - celery
+    environment:
+      - DEBUG=1
+      - DJANGO_SETTINGS_MODULE=library_system.settings
+
 volumes:
   postgres_data:

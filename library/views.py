@@ -19,7 +19,7 @@ class setPagination(PageNumberPagination):
     max_page_size = 100
 
 class BookViewSet(viewsets.ModelViewSet):
-    queryset = Book.objects.select_related.all()
+    queryset = Book.objects.select_related('author').all()
     serializer_class = BookSerializer
 
     @action(detail=True, methods=['post'])
@@ -57,7 +57,7 @@ class MemberViewSet(viewsets.ModelViewSet):
     queryset = Member.objects.all()
     serializer_class = MemberSerializer
 
-    @action(detail=False, method=['get'])
+    @action(detail=False, methods=['get'])
     def top_active(self, request):
 
         top_members = Member.objects.annotate(
@@ -74,8 +74,6 @@ class MemberViewSet(viewsets.ModelViewSet):
             })
         return Response(result)
 
-        )
-
 class LoanViewSet(viewsets.ModelViewSet):
     queryset = Loan.objects.all()
     serializer_class = LoanSerializer
@@ -83,14 +81,14 @@ class LoanViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def extend_due_date(self, request, pk=None):
         loan = self.get_object()
-        serialize = ExtendDueDateSerializer.serialize(data=request.data)
-        serialize.is_valid()
+        serialize = ExtendDueDateSerializer(data=request.data)
+        serialize.is_valid(raise_execption=True)
         can_extend_error = loan.can_extend_due_date(loan)
         if can_extend_error:
             return Response({'error': [can_extend_error]}, status=status.HTTP_400_BAD_REQUEST)
         
         days = serialize.validated_data['additional_days']
 
-        loan.due_date +=  timedelta(days=days)
+        loan.due_date += timedelta(days=days)
         loan.save()
         return (self.get_serializer(loan))
