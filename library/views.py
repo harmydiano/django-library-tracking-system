@@ -1,17 +1,25 @@
 from rest_framework import viewsets, status
 from rest_framework.response import Response
+from rest_framework.pagination import PageNumberPagination
 from .models import Author, Book, Member, Loan
-from .serializers import AuthorSerializer, BookSerializer, MemberSerializer, LoanSerializer
+from .serializers import AuthorSerializer, BookSerializer, MemberSerializer, LoanSerializer, ExtendDueDateSerializer
 from rest_framework.decorators import action
 from django.utils import timezone
+from django.db.models import Count,F
 from .tasks import send_loan_notification
+from datetime import timedelta
 
 class AuthorViewSet(viewsets.ModelViewSet):
     queryset = Author.objects.all()
     serializer_class = AuthorSerializer
 
+class setPagination(PageNumberPagination):
+    page_size = 10
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
 class BookViewSet(viewsets.ModelViewSet):
-    queryset = Book.objects.all()
+    queryset = Book.objects.select_related.all()
     serializer_class = BookSerializer
 
     @action(detail=True, methods=['post'])
@@ -49,6 +57,40 @@ class MemberViewSet(viewsets.ModelViewSet):
     queryset = Member.objects.all()
     serializer_class = MemberSerializer
 
+    @action(detail=False, method=['get'])
+    def top_active(self, request):
+
+        top_members = Member.objects.annotate(
+            active_loans=Count('loans', filter=F('loans__is_returned') == False).
+            order_by('active_loans'))[:5]
+
+        result = []
+        for member in top_members:
+            result.append({
+                'id': member.id,
+                'username': member.user.username,
+                'email': member.user.email,
+                'active_loans': member.active_loans
+            })
+        return Response(result)
+
+        )
+
 class LoanViewSet(viewsets.ModelViewSet):
     queryset = Loan.objects.all()
     serializer_class = LoanSerializer
+
+    @action(detail=True, methods=['post'])
+    def extend_due_date(self, request, pk=None):
+        loan = self.get_object()
+        serialize = ExtendDueDateSerializer.serialize(data=request.data)
+        serialize.is_valid()
+        can_extend_error = loan.can_extend_due_date(loan)
+        if can_extend_error:
+            return Response({'error': [can_extend_error]}, status=status.HTTP_400_BAD_REQUEST)
+        
+        days = serialize.validated_data['additional_days']
+
+        loan.due_date +=  timedelta(days=days)
+        loan.save()
+        return (self.get_serializer(loan))
